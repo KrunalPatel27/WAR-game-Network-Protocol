@@ -1,0 +1,23 @@
+{
+    "name": "Homework 3",
+    "endpoint": "uic/cs450/sp18/homework3",
+   
+    "src": [
+        "war.py"
+    ],
+    "tests": {
+        "tests/01.py": "ok_test"
+    },
+
+    "protocols": [
+        "restore",
+        "export",
+        "file_contents",
+        "analytics",
+        "unlock",
+        "lock",
+        "grading",
+        "scoring",  
+        "backup"
+    ]
+}
