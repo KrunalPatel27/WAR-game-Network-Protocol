@@ -18,8 +18,7 @@ for each game which contain the game's state, for instance things like the
 socket, the cards given, the cards still available, etc.
 """
 Game = namedtuple("Game", ["p1", "p2"])
-
-
+Array_of_players = []
 class Command(Enum):
     """
     The byte values sent as the first byte of any message in the war protocol.
@@ -67,7 +66,7 @@ def compare_cards(card1, card2):
         return -1
     elif card1 > card2:
         return 1
-    else
+    else:
         return 0
 
 def deal_cards():
@@ -84,6 +83,41 @@ def splitter(A):
     C = A[len(A)//2:]
     return (B,C)
 
+def convertDeckToPayload(list):
+    payload = bytes([1])
+    for x in list:
+        payload += bytes([x])
+    return payload
+
+
+ 
+async def start_game(p1_reader,p1_writer, p2_reader, p2_writer):
+    wantgame_check = bytes([Command.WANTGAME.value, 0])
+    p1_data = await p1_reader.read(2)
+    p2_data = await p2_reader.read(2)
+    if p1_data == wantgame_check and p2_data == wantgame_check:
+        (p1_deck, p2_deck) = deal_cards()
+        payload = convertDeckToPayload(p1_deck)
+        p1_writer.write(convertDeckToPayload(p1_deck))
+        p2_writer.write(convertDeckToPayload(p2_deck))
+        for i in range(26):
+            p1_data = await p1_reader.readexactly(2)
+            p2_data = await p2_reader.readexactly(2)
+            compare_cards()
+        #p1_writer.write(bytes([Command.GAMESTART.value])+ bytearray(p1_deck))
+        #p2_writer.write(bytes([Command.GAMESTART.value])+ bytearray(p2_deck))
+    pass
+
+
+async def wait_for_clients(reader, writer):
+    if len(Array_of_players) == 0:
+        Array_of_players.append((reader, writer))
+    else:
+        (p1_reader, p1_writer) = Array_of_players[0]
+        result = await start_game(p1_reader, p1_writer, reader, writer)
+        Array_of_players.pop(0)
+    pass
+
 def serve_game(host, port):
     """
     TODO: Open a socket for listening for new connections on host:port, and
@@ -91,7 +125,7 @@ def serve_game(host, port):
     This function should run forever, continually serving clients.
     """
     loop = asyncio.get_event_loop()
-    coro = asyncio.start_server(handle_echo, host, port, loop=loop)
+    coro = asyncio.start_server(wait_for_clients, host, port, loop=loop)
     server = loop.run_until_complete(coro)
     # Serve requests until Ctrl+C is pressed
     print('Serving on {}'.format(server.sockets[0].getsockname()))
@@ -106,6 +140,12 @@ def serve_game(host, port):
     loop.close()
 
     pass
+
+
+
+
+
+
 
 async def limit_client(host, port, loop, sem):
     """
