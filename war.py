@@ -10,6 +10,7 @@ import socket
 import socketserver
 import threading
 import sys
+from threading import Thread 
 
 """
 Namedtuples work like classes, but are much more lightweight so they end
@@ -19,6 +20,8 @@ socket, the cards given, the cards still available, etc.
 """
 Game = namedtuple("Game", ["p1", "p2"])
 Array_of_players = []
+Array_of_Games = []
+counter = 1
 class Command(Enum):
     """
     The byte values sent as the first byte of any message in the war protocol.
@@ -45,29 +48,45 @@ def readexactly(sock, numbytes):
     """
     pass
 
-def kill_game(game):
+def kill_game(p1_writer, p2_writer):
     """
     TODO: If either client sends a bad message, immediately nuke the game.
     """
+    p1_writer.close()
+    p2_writer.close()
     pass
 
 def get_card_value(card):
     return (card % 13)
 
+def if_valid_move(card, deck):
+    if card in deck:
+        del deck[deck.index(card)]
+        return (True, deck)
+    else:
+        return (False, deck)
 
-def compare_cards(card1, card2):
+def compare_cards(card1, card2, p1_deck, p2_deck):
     """
     TODO: Given an integer card representation, return -1 for card1 < card2,
     0 for card1 = card2, and 1 for card1 > card2
+    return 2 if fails valid move condition
     """
+    (state, p1_deck) = if_valid_move(card1, p1_deck)
+    if state== False:
+        return (2, p1_deck, p2_deck)
+    (state, p2_deck) = if_valid_move(card2, p2_deck)
+    if state == False:
+        return (2, p1_deck, p2_deck)
+
     card1_value = get_card_value(card1)
     card2_value = get_card_value(card2)
     if card1 < card2:
-        return -1
+        return (-1, p1_deck, p2_deck)
     elif card1 > card2:
-        return 1
+        return (1, p1_deck, p2_deck)
     else:
-        return 0
+        return (0, p1_deck, p2_deck)
 
 def deal_cards():
     """
@@ -89,8 +108,6 @@ def convertDeckToPayload(list):
         payload += bytes([x])
     return payload
 
-
- 
 async def start_game(p1_reader,p1_writer, p2_reader, p2_writer):
     wantgame_check = bytes([Command.WANTGAME.value, 0])
     p1_data = await p1_reader.read(2)
@@ -103,19 +120,32 @@ async def start_game(p1_reader,p1_writer, p2_reader, p2_writer):
         for i in range(26):
             p1_data = await p1_reader.readexactly(2)
             p2_data = await p2_reader.readexactly(2)
-            compare_cards()
-        #p1_writer.write(bytes([Command.GAMESTART.value])+ bytearray(p1_deck))
-        #p2_writer.write(bytes([Command.GAMESTART.value])+ bytearray(p2_deck))
+            if p1_data[0] == Command.PLAYCARD.value and p2_data[0] == Command.PLAYCARD.value:
+                (round_result, p1_deck, p2_deck) = compare_cards(p1_data[1], p2_data[1], p1_deck, p2_deck)
+                if round_result == 2:
+                    kill_game(p1_writer, p2_writer)
+                    break
+                if round_result == -1:
+                    p1_writer.write(bytes([Command.PLAYRESULT.value, Result.LOSE.value]))
+                    p2_writer.write(bytes([Command.PLAYRESULT.value, Result.WIN.value]))
+                elif round_result == 1:
+                    p1_writer.write(bytes([Command.PLAYRESULT.value, Result.WIN.value]))
+                    p2_writer.write(bytes([Command.PLAYRESULT.value, Result.LOSE.value]))
+                else:
+                    p1_writer.write(bytes([Command.PLAYRESULT.value, Result.DRAW.value]))
+                    p2_writer.write(bytes([Command.PLAYRESULT.value, Result.DRAW.value]))
+            else:
+                break
+        kill_game(p1_writer, p2_writer)
     pass
 
-
 async def wait_for_clients(reader, writer):
-    if len(Array_of_players) == 0:
+    if not Array_of_players:
         Array_of_players.append((reader, writer))
     else:
         (p1_reader, p1_writer) = Array_of_players[0]
-        result = await start_game(p1_reader, p1_writer, reader, writer)
         Array_of_players.pop(0)
+        await start_game(p1_reader, p1_writer, reader, writer)
     pass
 
 def serve_game(host, port):
@@ -140,12 +170,6 @@ def serve_game(host, port):
     loop.close()
 
     pass
-
-
-
-
-
-
 
 async def limit_client(host, port, loop, sem):
     """
